@@ -2,12 +2,14 @@
 ## Simulation study ##
 ######################
 # This simulation study is in parts based on the simulation study of
-# Meyer and Pebesma (2021): https://doi.org/10.1111/2041-210X.13650
+# Meyer and Pebesma (2021): 
+# - https://doi.org/10.1111/2041-210X.13650
+# - https://github.com/HannaMeyer/MEE_AOA
 
 rm(list=ls())
 
 # data handling
-#install_github("fab-scm/CAST@dev")
+remotes::install_github("fab-scm/CAST")
 library(CAST)
 library(virtualspecies)
 library(caret)
@@ -652,7 +654,7 @@ ggplot() +
 ######################################
 ## LPD to detect outlier-caused AOA ##
 ######################################
-if (design = "biasedWithOutlier") {
+if (design == "biasedWithOutlier") {
   plot_LPD <- ggplot() +
     geom_spatraster(data = AOA$LPD) +
     scale_fill_viridis_c(na.value = "transparent") +

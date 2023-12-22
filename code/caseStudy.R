@@ -10,6 +10,7 @@ library(sf)
 library(tidyverse)
 
 # model training and AOA calculation
+remotes::install_github("fab-scm/CAST")
 library(caret)
 library(CAST)
 library(ranger)
