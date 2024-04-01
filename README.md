@@ -1,5 +1,5 @@
-# Development of a local data point density approach to assess the area of applicability for spatial prediction models
-This repository contains the code for the analysis in the thesis "Development of a local data point density approach to assess the area of applicability for spatial prediction models" by Fabian Schumacher.
+# Refining the Area of Applicability of spatial prediction models by local data point densities
+This repository contains the code for the analysis in the paper "Refining the Area of Applicability of spatial prediction models by local data point densities" by Schumacher et. al.
 
 Following contents can be found in the repository:
 
