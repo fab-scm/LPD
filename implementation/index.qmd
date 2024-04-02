@@ -1,0 +1,19 @@
+## Introduction
+
+This website provides documentation for the implementation of the `aoa.R` and `trainDI.R` scripts in the scope of the bachelor thesis 'Development of a local data point density approach to assess the Area of Applicability for spatial prediction models'. These scripts were modified within the CAST package and implement the calculation of a local data point density layer within the aoa function. CAST, short for "Caret Applications for Spatial-Temporal Models," serves as an extension to the widely-used `caret` package for model training and prediction using machine learning. The CAST package extends the capabilities of `caret` by introducing functions tailored to enhance spatial or spatial-temporal modeling tasks.
+
+### Area of Applicability Estimation
+
+One of CAST's features is its ability to estimate the Area of Applicability for spatial prediction models. This feature is pivotal in understanding the scope within which a trained model's predictions can be reliably applied. It assists in gauging the model's reliability across different spatial or spatial-temporal regions.
+
+## Scripts
+
+### `aoa.R`
+
+The aoa function implements the calculation of the Area of Applicability (AOA) for a prediction model. The Dissimilarity Index (DI) of the new data is essential to derive the AOA and will also be provided in the returned aoa object. In addition, the newly implemented LPD layer is provided in the aoa object.
+
+### `trainDI.R`
+
+The trainDI function estimates the Dissimilarity Index (DI) and the Local Data Point Density (LPD) of within the training data set used for a prediction model.
+
+If you're new to the CAST package or want to learn how to use the `aoa.R` and `trainDI.R` scripts, check out the [Documentation](https://hannameyer.github.io/CAST/).
