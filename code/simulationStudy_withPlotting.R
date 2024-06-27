@@ -9,8 +9,8 @@
 rm(list=ls())
 
 # data handling
-remotes::install_github("fab-scm/CAST")
 library(CAST)
+library(CASTvis)
 library(virtualspecies)
 library(caret)
 library(terra)
@@ -18,6 +18,7 @@ library(sf)
 
 # visualization
 library(viridis)
+library(see)
 library(gridExtra)
 library(stringr)
 library(tidyterra)
@@ -72,7 +73,7 @@ npoints <- 100                                                                  
 nclusters <- 10                                                                 # nclusters: number of clusters if design==clustered
 maxdist <- 0.8                                                                  # maxdist: maxdist for clustered samples if design==clustered
 countries <- c("Germany","Ireland","France", "Sweden")                          # countries: main sample countries if design==biased
-countriesOutlier <- "Turkmenistan"                                              # countriesOutlier: outlier country if design==biasedWithOutlier (a single point is set here)
+countriesOutlier <- "Norway"                                              # countriesOutlier: outlier country if design==biasedWithOutlier (a single point is set here)
 meansPCA <- c(3, -1)                                                            # meansPCA: means of the gaussian response functions to the 2 axes
 sdPCA <- c(2, 2)                                                                # sdPCA: sds of the gaussian response functions to the 2 axes
 simulateResponse <- c("bio_2","bio_5","bio_10", "bio_13", "bio_14","bio_19")    # simulateResponse: variables used to simulate the response
@@ -147,11 +148,13 @@ maskVect <- as.polygons(mask, aggregate = TRUE)
 mask <- as.polygons(mask, aggregate = FALSE)
 mask <- st_as_sf(mask)
 mask <- st_make_valid(mask)
-modeldomain <- mask
+modeldomain <- st_transform(mask, "+init=epsg:4326")
+modeldomain_vect <- maskVect
 
 # random
 set.seed(seed)
 samplepoints_random <- st_as_sf(st_sample(mask, size = npoints, "random"))
+samplepoints_random <- st_transform(samplepoints_random, "+init=epsg:4326")
 st_write(samplepoints_random, "./data/samples/samplepoints_sim_study_random.geojson", driver = "GeoJSON", append = FALSE, delete_dsn = TRUE)
 
 # clustered
@@ -208,12 +211,12 @@ plot3 = ggplot() +
 plot4 = grid.arrange(plot1,plot2,plot3, nrow=3)
 
 # plot only sampling designs
-pdf(file = "analysis/figures/simulation_study/sample_designs.pdf", width = 15, height = 5)
+pdf(file = "code/figures/simulation_study/sample_designs.pdf", width = 15, height = 5)
 plot_grid(plot1, plot2, plot3, labels = c("(a)", "(b)", "(c)"), ncol = 3)
 invisible(dev.off())
 
 # plot predictors and sampling designs
-pdf(file = "analysis/figures/simulation_study/predictors_and_sample_designs.pdf", width = 12, height = 8)
+pdf(file = "code/figures/simulation_study/predictors_and_sample_designs.pdf", width = 12, height = 8)
 plot_grid(plot0, plot4, ncol = 2, nrow = 1,rel_heights = c(0.8), rel_widths = c(735,265), labels = c("(a)", "(b)"))
 invisible(dev.off())
 
@@ -236,7 +239,7 @@ plot2 = ggplot() +
   theme(legend.key.height = unit(0.16, "npc")
   )
 
-pdf(file = "analysis/figures/simulation_study/generate_response.pdf", width = 14, height = 6)
+pdf(file = "code/figures/simulation_study/generate_response.pdf", width = 14, height = 6)
 plot_grid(plot1, plot2, nrow = 1,rel_widths = c(530,470), rel_heights = c(1), labels = c("(a)", "(b)"))
 invisible(dev.off())
 
@@ -269,6 +272,72 @@ trainDat_biasedWithOutlier <- trainDat_biasedWithOutlier[complete.cases(trainDat
 
 
 
+########################
+## Create kNNDM folds ##
+########################
+
+set.seed(seed)
+
+# random
+knndm_folds_random <- knndm(samplepoints_random, modeldomain = modeldomain, k = 10)
+
+samplepoints_random$fold = knndm_folds_random$clusters
+
+plot_sample_cv_design_random = ggplot() +
+  geom_spatvector(data = modeldomain_vect, fill = "white") +
+  labs(title = "CV design (random)") +
+  geom_sf(mapping = aes(col = factor(fold)), data = samplepoints_random, size = 1) +
+  scale_color_manual(name = "knndm folds", values = c('#a50026','#d73027','#f46d43','#fdae61','#fee090','#e0f3f8','#abd9e9','#74add1','#4575b4','#313695')) +
+  theme +
+  theme(legend.position.inside=c(.8,.16),
+        legend.text=element_text(size = 8),
+        legend.title=element_text(size = 10),
+        legend.background=element_blank(),
+        legend.key.height = unit(0.03, "npc"),
+        legend.key.width = unit(0.015, "npc"))
+
+# clustered
+knndm_folds_clustered <- knndm(samplepoints_clustered, modeldomain = modeldomain, k = 10)
+
+samplepoints_clustered$fold = knndm_folds_clustered$clusters
+
+plot_sample_cv_design_clustered = ggplot() +
+  geom_spatvector(data = modeldomain_vect, fill = "white") +
+  labs(title = "CV design (clustered)") +
+  geom_sf(mapping = aes(col = factor(fold)), data = samplepoints_clustered, size = 1) +
+  scale_color_manual(name = "knndm folds", values = c('#a50026','#d73027','#f46d43','#fdae61','#fee090','#e0f3f8','#abd9e9','#74add1','#4575b4','#313695')) +
+  theme +
+  theme(legend.position.inside=c(.8,.16),
+        legend.text=element_text(size = 8),
+        legend.title=element_text(size = 10),
+        legend.background=element_blank(),
+        legend.key.height = unit(0.03, "npc"),
+        legend.key.width = unit(0.015, "npc"))
+
+# biased with outlier
+knndm_folds_biasedWithOutlier <- knndm(samplepoints_biasedWithOutlier, modeldomain = modeldomain, k = 10)
+
+samplepoints_biasedWithOutlier$fold = knndm_folds_biasedWithOutlier$clusters
+
+plot_sample_cv_design_biasedWithOutlier = ggplot() +
+  geom_spatvector(data = modeldomain_vect, fill = "white") +
+  labs(title = "CV design (biased with outliers)") +
+  geom_sf(mapping = aes(col = factor(fold)), data = samplepoints_biasedWithOutlier, size = 1) +
+  scale_color_manual(name = "knndm folds", values = c('#a50026','#d73027','#f46d43','#fdae61','#fee090','#e0f3f8','#abd9e9','#74add1','#4575b4','#313695')) +
+  theme +
+  theme(legend.position.inside=c(.8,.16),
+        legend.text=element_text(size = 8),
+        legend.title=element_text(size = 10),
+        legend.background=element_blank(),
+        legend.key.height = unit(0.03, "npc"),
+        legend.key.width = unit(0.015, "npc"))
+
+
+pdf(file = "code/figures/simulation_study/sample_designs_knndm_folds.pdf", width = 15, height = 5)
+plot_grid(plot_sample_cv_design_random, plot_sample_cv_design_clustered, plot_sample_cv_design_biasedWithOutlier, labels = c("(a)", "(b)", "(c)"), ncol = 3)
+invisible(dev.off())
+
+
 ####################
 ## Model training ##
 ####################
@@ -278,7 +347,7 @@ trainDat_biasedWithOutlier <- trainDat_biasedWithOutlier[complete.cases(trainDat
 
 set.seed(seed)
 
-# random with random cv
+# random with 10-fold random CV
 model_random <- train(
   trainDat_random[, names(predictors)],
   trainDat_random$response,
@@ -287,11 +356,14 @@ model_random <- train(
   tuneGrid = expand.grid(mtry = c(2:length(names(
     predictors
   )))),
-  trControl = trainControl(method = "cv", savePredictions = TRUE)
+  trControl = trainControl(
+    method = "cv",
+    index = knndm_folds_random$indx_train,
+    savePredictions = TRUE
+  )
 )
 
-# clustered with spatial leave one cluster out cv
-folds <- CreateSpacetimeFolds(trainDat_clustered, spacevar="clstrID", k=nclusters)
+# clustered with spatial leave one cluster out CV
 model_clustered <- train(
   trainDat_clustered[, names(predictors)],
   trainDat_clustered$response,
@@ -302,13 +374,12 @@ model_clustered <- train(
   )))),
   trControl = trainControl(
     method = "cv",
-    index = folds$index,
+    index = knndm_folds_clustered$indx_train,
     savePredictions = TRUE
   )
 )
 
-# biased with outlier with kNNDM CV
-knndm_folds <- knndm(samplepoints_biasedWithOutlier, modeldomain = mask, k = 10)
+# biased with outlier with 10-fold NNDM CV
 model_biasedWithOutlier <-
   train(
     trainDat_biasedWithOutlier[, names(predictors)],
@@ -320,7 +391,7 @@ model_biasedWithOutlier <-
     )))),
     trControl = trainControl(
       method = "cv",
-      index = knndm_folds$indx_train,
+      index = knndm_folds_biasedWithOutlier$indx_train,
       savePredictions = TRUE
     )
   )
@@ -329,7 +400,7 @@ model_biasedWithOutlier <-
 cv_results = rbind(global_validation(model_random),
                    global_validation(model_clustered),
                    global_validation(model_biasedWithOutlier)) |>
-  as.data.frame() |> mutate("CV" = c("random", "spatial", "knndm"),
+  as.data.frame() |> mutate("CV" = c("10-fold random CV", "10-fold LOCO CV", "10-fold NNDM CV"),
                             "predictors" = c(ncol(model_random$trainingData)-1,
                                              ncol(model_clustered$trainingData)-1,
                                              ncol(model_biasedWithOutlier$trainingData)-1))
@@ -340,7 +411,7 @@ knitr::kable(cv_results)
 plot1 = plot(varImp(model_random,scale = F), col="black")
 plot2 = plot(varImp(model_clustered,scale = F), col="black")
 plot3 = plot(varImp(model_biasedWithOutlier,scale = F), col="black")
-pdf(file = "analysis/figures/simulation_study/varImps.pdf", width = 14, height = 6)
+pdf(file = "code/figures/simulation_study/varImps.pdf", width = 14, height = 6)
 plot_grid(plot1, plot2, plot3, ncol = 3, nrow = 1, labels = c("(a)", "(b)", "(c)"))
 invisible(dev.off())
 
@@ -383,60 +454,10 @@ AOA_clustered <- aoa(newdata = predictors, model = model_clustered, method = "L2
 # biased with outlier
 AOA_biasedWithOutlier <- aoa(newdata = predictors, model = model_biasedWithOutlier, method = "L2", LPD = TRUE, maxLPD = 1)
 
-
-###################
-## Plot LPD ~ DI ##
-###################
-
-# random
-df_random = data.frame(LPD = values(AOA_random$LPD, na.rm = TRUE), DI = round(values(AOA_random$DI, na.rm = TRUE),digits = 3))
-df_random[df_random$LPD == 0 & df_random$DI <= 0.5, "DI"] = 0.51 # shift values for clear bins
-plotDILPD_random <- ggplot(df_random, aes(x = LPD, y = DI)) +
-  stat_bin_2d(breaks = list(x = seq(-0.5, max(df_random$LPD)+1, 1), y = seq(0, ceiling(max(df_random$DI)), 0.05))) +
-  scale_fill_viridis(begin = 0.1) +
-  geom_hline(aes(yintercept = AOA_random$parameters$threshold, linetype = "AOA_threshold")) +
-  scale_linetype_manual(name = "", values = c(AOA_threshold = "dashed")) +
-  labs(title = "LPD ~ DI (random)") +
-  theme_bw() +
-  stat_smooth(data = df_random, aes(LPD, DI, color = "LPD~DI"), method = "gam", se = FALSE) +
-  scale_color_manual(name = "",values = c("LPD~DI" = "red"))
-
-# clustered
-df_clustered = data.frame(LPD = values(AOA_clustered$LPD, na.rm = TRUE), DI = round(values(AOA_clustered$DI, na.rm = TRUE),digits = 3))
-df_clustered[df_clustered$LPD == 0 & df_clustered$DI <= 0.6, "DI"] = 0.61 # shift values for clear bins
-df_clustered[df_clustered$LPD > 0 & df_clustered$DI > 0.6, "DI"] = 0.60
-plotDILPD_clustered <- ggplot(df_clustered, aes(x = LPD, y = DI)) +
-  stat_bin_2d(breaks = list(x = seq(-0.5, max(df_clustered$LPD)+1, 1), y = seq(0, ceiling(max(df_clustered$DI)), 0.05))) +
-  scale_fill_viridis(begin = 0.1) +
-  geom_hline(aes(yintercept = AOA_clustered$parameters$threshold, linetype = "AOA_threshold")) +
-  scale_linetype_manual(name = "", values = c(AOA_threshold = "dashed")) +
-  labs(title = "LPD ~ DI (clustered)") +
-  theme_bw() +
-  stat_smooth(data = df_clustered, aes(LPD, DI, color = "LPD~DI"), method = "gam", se = FALSE) +
-  scale_color_manual(name = "",values = c("LPD~DI" = "red"))
-
-# biased with outlier
-df_biasedWithOutlier = data.frame(LPD = values(AOA_biasedWithOutlier$LPD, na.rm = TRUE), DI = round(values(AOA_biasedWithOutlier$DI, na.rm = TRUE),digits = 3))
-df_biasedWithOutlier[df_biasedWithOutlier$LPD == 0 & df_biasedWithOutlier$DI <= 0.6, "DI"] = 0.61 # shift values for clear bins
-df_biasedWithOutlier[df_biasedWithOutlier$LPD > 0 & df_biasedWithOutlier$DI > 0.6, "DI"] = 0.60 # shift values for clear bins
-plotDILPD_biasedWithOutlier <- ggplot(df_biasedWithOutlier, aes(x = LPD, y = DI)) +
-  stat_bin_2d(breaks = list(x = seq(-0.5, max(df_biasedWithOutlier$LPD)+1, 1), y = seq(0, ceiling(max(df_biasedWithOutlier$DI)), 0.05))) +
-  scale_fill_viridis(begin = 0.1) +
-  geom_hline(aes(yintercept = AOA_biasedWithOutlier$parameters$threshold, linetype = "AOA_threshold")) +
-  scale_linetype_manual(name = "", values = c(AOA_threshold = "dashed")) +
-  labs(title = "LPD ~ DI (biased with outlier)") +
-  theme_bw() +
-  stat_smooth(data = df_biasedWithOutlier, aes(LPD, DI, color = "LPD~DI"), method = "gam", se = FALSE) +
-  scale_color_manual(name = "",values = c("LPD~DI" = "red"))
-
-# genarate pdf plot for DI ~ LPD
-pdf(file = "analysis/figures/simulation_study/LPD_DI.pdf", width = 14, height = 6)
-plot_grid(plotDILPD_random,
-          plotDILPD_clustered,
-          plotDILPD_biasedWithOutlier,
-          ncol=3,
-          labels = c("(a)", "(b)", "(c)"))
-invisible(dev.off())
+# exploreAOA
+# exploreAOA(AOA_random)
+# exploreAOA(AOA_clustered)
+# exploreAOA(AOA_biasedWithOutlier)
 
 
 #############################
@@ -464,7 +485,7 @@ predsd_random <- RFsd(predictors,model_random)
 # clustered
 predsd_clustered <- RFsd(predictors,model_clustered)
 
-# clustered
+# biased with outlier
 predsd_biasedWithOutlier <- RFsd(predictors,model_biasedWithOutlier)
 
 
@@ -618,7 +639,7 @@ th_random <- cv_results$RMSE[1]
 
 plot1_random = ggplot(dat_all_random, aes(x = LPD, y = absError)) +
   stat_bin_2d(breaks=list(x = seq(-0.25,max(dat_all_random$LPD)+1,0.5), y = seq(0, ceiling(max(dat_all_random$absError)), 0.01))) +
-  ylab("True absolute error / RMSE") +
+  ylab("RMSE") +
   xlab("Local data point density (LPD)") +
   scale_fill_gradientn(name = "Data points",
                        trans = "log",
@@ -628,7 +649,7 @@ plot1_random = ggplot(dat_all_random, aes(x = LPD, y = absError)) +
   scale_color_manual(name = "",values = c("RMSE" = "black")) +
   geom_hline(aes(yintercept=th_random,linetype="CV RMSE"), color = "red") +
   scale_linetype_manual(name = "", values = c("CV RMSE" = "solid")) +
-  labs(title = "LPD ~ true abs. error (random)") +
+  labs(title = "LPD ~ RMSE (random)") +
   theme_bw() +
   theme(legend.title = element_text( size = 10))
 
@@ -656,7 +677,7 @@ th_clustered <- cv_results$RMSE[2]
 
 plot1_clustered = ggplot(dat_all_clustered, aes(x = LPD, y = absError)) +
   stat_bin_2d(breaks=list(x = seq(-0.25,max(dat_all_clustered$LPD)+1,0.5), y = seq(0, ceiling(max(dat_all_clustered$absError)), 0.01))) +
-  ylab("True absolute error / RMSE") +
+  ylab("RMSE") +
   xlab("Local data point density (LPD)") +
   scale_fill_gradientn(name = "Data points",
                        trans = "log",
@@ -666,7 +687,7 @@ plot1_clustered = ggplot(dat_all_clustered, aes(x = LPD, y = absError)) +
   scale_color_manual(name = "",values = c("RMSE" = "black")) +
   geom_hline(aes(yintercept=th_clustered,linetype="CV RMSE"), color = "red") +
   scale_linetype_manual(name = "", values = c("CV RMSE" = "solid")) +
-  labs(title = "LPD ~ true abs. error (clustered)") +
+  labs(title = "LPD ~ RMSE (clustered)") +
   theme_bw() +
   theme(legend.title = element_text( size = 10))
 
@@ -694,7 +715,7 @@ th_biasedWithOutlier <- cv_results$RMSE[3]
 
 plot1_biasedWithOutlier = ggplot(dat_all_biasedWithOutlier, aes(x = LPD, y = absError)) +
   stat_bin_2d(breaks=list(x = seq(-0.25,max(dat_all_biasedWithOutlier$LPD)+1,0.5), y = seq(0, ceiling(max(dat_all_biasedWithOutlier$absError)), 0.01))) +
-  ylab("True absolute error / RMSE") +
+  ylab("RMSE") +
   xlab("Local data point density (LPD)") +
   scale_fill_gradientn(name = "Data points",
                        trans = "log",
@@ -704,7 +725,7 @@ plot1_biasedWithOutlier = ggplot(dat_all_biasedWithOutlier, aes(x = LPD, y = abs
   scale_color_manual(name = "",values = c("RMSE" = "black")) +
   geom_hline(aes(yintercept=th_biasedWithOutlier,linetype="CV RMSE"), color = "red") +
   scale_linetype_manual(name = "", values = c("CV RMSE" = "solid")) +
-  labs(title = "LPD ~ true abs. error (biased with outlier)") +
+  labs(title = "LPD ~ RMSE (biased with outlier)") +
   theme_bw() +
   theme(legend.title = element_text( size = 10))
 
@@ -725,7 +746,7 @@ plot2_biasedWithOutlier =  ggplot(dat_all_biasedWithOutlier, aes(LPD,sd)) +
 
 
 # generate pdf plot for LPD ~ True abs. error
-pdf(file = "analysis/figures/simulation_study/LPD_true_error.pdf", width = 14, height = 6)
+pdf(file = "code/figures/simulation_study/LPD_true_error.pdf", width = 10, height = 4)
 plot_grid(plot1_random,
           plot1_clustered,
           plot1_biasedWithOutlier,
@@ -734,7 +755,7 @@ plot_grid(plot1_random,
 invisible(dev.off())
 
 # generate pdf plot for LPD ~
-pdf(file = "analysis/figures/simulation_study/LPD_predsd.pdf", width = 14, height = 6)
+pdf(file = "code/figures/simulation_study/LPD_predsd.pdf", width = 14, height = 6)
 plot_grid(plot2_random,
           plot2_clustered,
           plot2_biasedWithOutlier,
@@ -750,13 +771,11 @@ invisible(dev.off())
 # only for the random sampling design
 
 # compute error models
-DI_errormodel_random <- DItoErrormetric(model_random, AOA_random, calib = "scam", k = 4, window.size = 5)
-LPD_errormodel_random <- LPDtoErrormetric(model_random, AOA_random, calib = "scam", k = 6, window.size = 5)
-DI_LPD_errormodel_random <- DI_LPDtoErrormetric(model_random, AOA_random, calib = "scam", window.size = 5)
+DI_errormodel_random <- errorProfiles(model_random, AOA_random, variable = "DI", calib = "scam", k = 4, window.size = 5)
+LPD_errormodel_random <- errorProfiles(model_random, AOA_random, variable = "LPD", calib = "scam", k = 6, window.size = 5)
 
 
 # DI error model:
-
 recl <- attr(DI_errormodel_random, "performance")
 
 reference_perf <- as.data.frame(list(AOA_random$DI,response,prediction_random))
@@ -819,7 +838,7 @@ cor(slidingw$model, slidingw$true)
 rmse(slidingw$model, slidingw$true)
 
 # generate pdf plot for DI and LPD error model
-pdf(file = "analysis/figures/simulation_study/DI_LPD_errormodel_random.pdf", width = 10, height = 5)
+pdf(file = "code/figures/simulation_study/DI_LPD_errormodel_random.pdf", width = 10, height = 5)
 plot_grid(plot_DI_errormodel_random,
           plot_LPD_errormodel_random,
           ncol=2,
@@ -827,75 +846,18 @@ plot_grid(plot_DI_errormodel_random,
 invisible(dev.off())
 
 
-# DI + LPD error model:
-recl <- attr(DI_LPD_errormodel_random, "performance")
-
-reference_perf_DI <- as.data.frame(list(AOA_random$DI,response,prediction_random))
-reference_perf_DI <- reference_perf_DI[order(reference_perf_DI$DI),]
-names(reference_perf_DI) <- c("DI","obs","pred")
-
-# use same moving window over the prediction data to get true RMSE
-slidingw_DI <- attr(DI_LPD_errormodel_random, "performance")
-reference_metric_DI <- apply(slidingw_DI,1,function(x){
-  x_df <- data.frame(t(x))
-  subs_ref <- reference_perf_DI[reference_perf_DI$DI>x_df$ll.DI&
-                               reference_perf_DI$DI<x_df$ul.DI,]
-  rmse(subs_ref[,"pred"],subs_ref[,"obs"])
-})
-slidingw_DI$true.DI <- reference_metric_DI
-
-reference_perf_LPD <- as.data.frame(list(AOA_random$LPD,response,prediction_random))
-reference_perf_LPD <- reference_perf_LPD[order(reference_perf_LPD$LPD),]
-names(reference_perf_LPD) <- c("LPD","obs","pred")
-
-# use same moving window over the prediction data to get true RMSE
-slidingw_LPD <- attr(DI_LPD_errormodel_random, "performance")
-reference_metric_LPD <- apply(slidingw_LPD,1,function(x){
-  x_df <- data.frame(t(x))
-  subs_ref <- reference_perf_LPD[reference_perf_LPD$LPD>=x_df$ll.LPD&
-                               reference_perf_LPD$LPD<=x_df$ul.LPD,]
-  rmse(subs_ref[,"pred"],subs_ref[,"obs"])
-})
-slidingw_LPD$true.LPD <- reference_metric_LPD
-
-# calculate true RMSE from DI and LPD moving window
-slidingw <- merge(slidingw_DI, slidingw_LPD)
-slidingw$true <- (slidingw$true.DI + slidingw$true.LPD) / 2
-
-plot(DI_LPD_errormodel_random) %>%
-  layout(title = list(text = "DI + LPD ~ metric (RMSE,random)", x = 0.2, y = 0.8)) %>%
-  add_markers(x = ~DI,
-              y = ~LPD,
-              z = ~true,
-              data = slidingw,
-              color = I("red"),
-              size = I(40),
-              name = "truth",
-              opacity = 1,
-              hovertemplate = paste0("DI: %{x}<br>LPD: %{y}<br>metric: %{z}<br>"))
-
-slidingw$model = predict(DI_LPD_errormodel_random, slidingw)
-cor(slidingw$model, slidingw$true)
-rmse(slidingw$model, slidingw$true)
-
-# DI+LPD error model was screenshotted
-
-
 
 ##################################################
 ## Estimate model performance with error models ##
 ##################################################
-# prediction only makes sense inside aoa, as model was only fitted for data inside AOA
-# DI: smaller than AOA threshold
-# LPD: bigger than 1
+# prediction only makes sense inside aoa, since model was only fitted for data inside AOA
+# inside AOA: DI smaller than AOA threshold and LPD greater than 1
 
 DI_error_prediction_random <- predict(AOA_random$DI, DI_errormodel_random)
 LPD_error_prediction_random <- predict(AOA_random$LPD, LPD_errormodel_random)
-DI_LPD_error_prediction_random <- predict(rast(list(AOA_random$DI ,AOA_random$LPD)), DI_LPD_errormodel_random)
 
 DI_error_prediction_random[AOA_random$AOA == 0] <- NA
 LPD_error_prediction_random[AOA_random$AOA == 0] <- NA
-DI_LPD_error_prediction_random[AOA_random$AOA == 0] <- NA
 truediff_random[AOA_random$AOA == 0] <- NA
 
 colors <- as.character(values(AOA_random$AOA))
@@ -925,17 +887,6 @@ plot2 = ggplot() +
   )
 
 plot3 = ggplot() +
-  geom_spatraster(data = DI_LPD_error_prediction_random) +
-  scale_fill_viridis_c(na.value = "transparent") +
-  geom_spatraster(data = AOA_random$AOA , fill = colors, na.rm = TRUE, show.legend = T) +
-  labs(title = "DI and LPD predicted RMSE") +
-  theme +
-  theme(
-    legend.position = "bottom",
-    legend.key.width = unit(0.1, "npc")
-  )
-
-plot4 = ggplot() +
   geom_spatraster(data = truediff_random) +
   scale_fill_viridis_c(na.value = "transparent") +
   geom_spatraster(data = AOA_random$AOA , fill = colors, na.rm = TRUE, show.legend = T) +
@@ -946,11 +897,10 @@ plot4 = ggplot() +
     legend.key.width = unit(0.1, "npc")
   )
 
-pdf(file = "analysis/figures/simulation_study/DI_LPD_error_predictions_random.pdf", width = 14, height = 6)
+pdf(file = "code/figures/simulation_study/DI_LPD_error_predictions_random.pdf", width = 14, height = 6)
 plot_grid(plot1,
           plot2,
           plot3,
-          # plot4,
           ncol=3,
           nrow=1,
           labels = c("(a)", "(b)", "(c)"))
@@ -1057,7 +1007,7 @@ plot_AOA_LPD <- ggplot() +
     legend.key.width = unit(0.1, "npc")
   )
 
-pdf(file = "analysis/figures/simulation_study/filter_outliers.pdf", width = 14, height = 6)
+pdf(file = "code/figures/simulation_study/filter_outliers.pdf", width = 14, height = 6)
 plot_grid(plot_LPD,
           plot_AOA,
           plot_AOA_LPD,
@@ -1290,11 +1240,11 @@ plot6_biasedWithOutlier <- ggplot() +
     legend.key.width = unit(0.1, "npc")
   )
 
-pdf(file = "analysis/figures/simulation_study/response.pdf", width = 6, height = 6)
+pdf(file = "code/figures/simulation_study/response.pdf", width = 6, height = 6)
 plot0
 invisible(dev.off())
 
-pdf(file = "analysis/figures/simulation_study/predictions.pdf", width = 14, height = 6)
+pdf(file = "code/figures/simulation_study/predictions.pdf", width = 14, height = 6)
 plot_grid(plot1_random,
           plot1_clustered,
           plot1_biasedWithOutlier,
@@ -1302,7 +1252,7 @@ plot_grid(plot1_random,
           labels = c("(a)", "(b)", "(c)"))
 invisible(dev.off())
 
-pdf(file = "analysis/figures/simulation_study/predsd.pdf", width = 14, height = 6)
+pdf(file = "code/figures/simulation_study/predsd.pdf", width = 14, height = 6)
 plot_grid(plot2_random,
           plot2_clustered,
           plot2_biasedWithOutlier,
@@ -1310,7 +1260,7 @@ plot_grid(plot2_random,
           labels = c("(a)", "(b)", "(c)"))
 invisible(dev.off())
 
-pdf(file = "analysis/figures/simulation_study/true_abs_error.pdf", width = 14, height = 6)
+pdf(file = "code/figures/simulation_study/true_abs_error.pdf", width = 14, height = 6)
 plot_grid(plot3_random,
           plot3_clustered,
           plot3_biasedWithOutlier,
@@ -1318,7 +1268,7 @@ plot_grid(plot3_random,
           labels = c("(a)", "(b)", "(c)"))
 invisible(dev.off())
 
-pdf(file = "analysis/figures/simulation_study/DI.pdf", width = 14, height = 6)
+pdf(file = "code/figures/simulation_study/DI.pdf", width = 14, height = 6)
 plot_grid(plot4_random,
           plot4_clustered,
           plot4_biasedWithOutlier,
@@ -1326,7 +1276,7 @@ plot_grid(plot4_random,
           labels = c("(a)", "(b)", "(c)"))
 invisible(dev.off())
 
-pdf(file = "analysis/figures/simulation_study/LPD.pdf", width = 14, height = 6)
+pdf(file = "code/figures/simulation_study/LPD.pdf", width = 14, height = 6)
 plot_grid(plot5_random,
           plot5_clustered,
           plot5_biasedWithOutlier,
@@ -1334,7 +1284,7 @@ plot_grid(plot5_random,
           labels = c("(a)", "(b)", "(c)"))
 invisible(dev.off())
 
-pdf(file = "analysis/figures/simulation_study/predsAOA.pdf", width = 14, height = 6)
+pdf(file = "code/figures/simulation_study/predsAOA.pdf", width = 14, height = 6)
 plot_grid(plot6_random,
           plot6_clustered,
           plot6_biasedWithOutlier,

@@ -9,8 +9,8 @@
 rm(list=ls())
 
 # data handling
-remotes::install_github("fab-scm/CAST")
 library(CAST)
+library(CASTvis)
 library(virtualspecies)
 library(caret)
 library(terra)
@@ -18,6 +18,7 @@ library(sf)
 
 # visualization
 library(viridis)
+library(see)
 library(gridExtra)
 library(stringr)
 library(tidyterra)
@@ -72,7 +73,7 @@ npoints <- 100                                                                  
 nclusters <- 10                                                                 # nclusters: number of clusters if design==clustered
 maxdist <- 0.8                                                                  # maxdist: maxdist for clustered samples if design==clustered
 countries <- c("Germany","Ireland","France", "Sweden")                          # countries: main sample countries if design==biasedWithOutlier
-countriesOutlier <- "Turkmenistan"                                              # countriesOutlier: outlier country if design==biasedWithOutlier (a single point is set here)
+countriesOutlier <- "Norway"                                              # countriesOutlier: outlier country if design==biasedWithOutlier (a single point is set here)
 meansPCA <- c(3, -1)                                                            # meansPCA: means of the gaussian response functions to the 2 axes
 sdPCA <- c(2, 2)                                                                # sdPCA: sds of the gaussian response functions to the 2 axes
 simulateResponse <- c("bio_2","bio_5","bio_10", "bio_13", "bio_14","bio_19")    # simulateResponse: variables used to simulate the response
@@ -115,7 +116,7 @@ predictors <- rast(
 
 # crop predictors to target area
 aoi <- ext(studyarea, xy = FALSE)
-predictors <- crop(predictors,aoi)
+predictors <- crop(predictors, aoi)
 names(predictors) = names(predictors) |> str_remove(pattern = "wc2.1_10m_")
 predictor_names <- names(predictors)
 
@@ -147,11 +148,13 @@ maskVect <- as.polygons(mask, aggregate = TRUE)
 mask <- as.polygons(mask, aggregate = FALSE)
 mask <- st_as_sf(mask)
 mask <- st_make_valid(mask)
-modeldomain <- mask
+modeldomain <- st_transform(mask, "+init=epsg:4326")
+modeldomain_vect <- maskVect
 
 if (design=="random"){
   set.seed(seed)
   samplepoints <- st_as_sf(st_sample(mask, size = npoints, "random"))
+  samplepoints <- st_transform(samplepoints, "+init=epsg:4326")
   st_write(samplepoints, "./data/samples/samplepoints_sim_study_random.geojson", driver = "GeoJSON", append = FALSE, delete_dsn = TRUE)
 }
 if (design=="clustered"){
@@ -207,6 +210,30 @@ if (design == "clustered") {
 trainDat <- trainDat[complete.cases(trainDat),]
 
 
+
+########################
+## Create kNNDM folds ##
+########################
+
+set.seed(seed)
+
+knndm_folds <- knndm(samplepoints, modeldomain = modeldomain, k = 10)
+
+samplepoints$fold = knndm_folds$clusters
+
+ggplot() +
+  geom_spatvector(data = modeldomain_vect, fill = "white") +
+  labs(title = "CV design") +
+  geom_sf(mapping = aes(col = factor(fold)), data = samplepoints, size = 1) +
+  scale_color_manual(name = "knndm folds", values = c('#a50026','#d73027','#f46d43','#fdae61','#fee090','#e0f3f8','#abd9e9','#74add1','#4575b4','#313695')) +
+  theme +
+  theme(legend.position.inside=c(.8,.16),
+        legend.text=element_text(size = 8),
+        legend.title=element_text(size = 10),
+        legend.background=element_blank(),
+        legend.key.height = unit(0.03, "npc"),
+        legend.key.width = unit(0.015, "npc"))
+
 ####################
 ## Model training ##
 ####################
@@ -216,42 +243,50 @@ trainDat <- trainDat[complete.cases(trainDat),]
 
 set.seed(seed)
 if(design =="random"){
-  # random with random cv
+  # random with 10-fold random CV
   model <- train(trainDat[,names(predictors)],
                  trainDat$response,
                  method="rf",
                  importance=TRUE,
                  tuneGrid = expand.grid(mtry = c(2:length(names(predictors)))),
-                 trControl = trainControl(method="cv",savePredictions = TRUE))
+                 trControl = trainControl(
+                   method = "cv",
+                   index = knndm_folds$indx_train,
+                   savePredictions = TRUE
+                 )
+  )
 }
 if(design=="clustered"){
-  # clustered with spatial leave one cluster out cv
+  # clustered with spatial leave one cluster out CV
   folds <- CreateSpacetimeFolds(trainDat, spacevar="clstrID", k=nclusters)
   model <- train(trainDat[,names(predictors)],
                  trainDat$response,
                  method="rf",
                  importance=TRUE,
                  tuneGrid = expand.grid(mtry = c(2:length(names(predictors)))),
-                 trControl = trainControl(method="cv",index=folds$index,savePredictions = TRUE))
+                 trControl = trainControl(
+                   method = "cv",
+                   index = knndm_folds$indx_train,
+                   savePredictions = TRUE
+                 )
+  )
 }
 if(design == "biasedWithOutlier"){
-  # biased with outlier with kNNDM CV
-  knndm_folds <- knndm(samplepoints, modeldomain = mask, k = 10)
+  # biased with outlier with 10-fold NNDM CV
   model <- train(trainDat[,names(predictors)],
                  trainDat$response,
                  method="rf",
                  importance=TRUE,
                  tuneGrid = expand.grid(mtry = c(2:length(names(predictors)))),
-                 trControl = trainControl(method="cv",index = knndm_folds$indx_train,savePredictions = TRUE))
+                 trControl = trainControl(
+                   method = "cv",
+                   index = knndm_folds$indx_train,
+                   savePredictions = TRUE
+                 )
+  )
 }
 
-if (design == "random") {
-  cv <- "random"
-} else if (design == "clustered") {
-  cv <- "spatial"
-} else if (design == "biasedWithOutliers") {
-  cv <- "knndm"
-}
+cv <- "kNNDM"
 # print cv results
 cv_results = rbind(global_validation(model)) |>
   as.data.frame() |> mutate("CV" = c(cv),
@@ -303,23 +338,14 @@ AOA <- aoa(newdata = predictors, model = model, method = "L2", LPD = TRUE, maxLP
 # plot(AOA)[[1]]
 # plot(AOA)[[2]]
 
-
 ggplot() +
   geom_spatraster(data = AOA$LPD) +
   scale_fill_viridis_c(na.value = "transparent") +
   labs(title = "LPD") +
   theme
 
-
-
-# # exploreAOA
-# library(leaflet)
-# library(shiny)
-# library(shinycssloaders)
-# library(rlist)
-# library(bslib)
-# library(shinyWidgets)
-# exploreAOA(AOA)
+# exploreAOA
+exploreAOA(AOA)
 
 
 #################################################################
@@ -480,9 +506,8 @@ ggplot(dat_all, aes(x = LPD, y = DI)) +
 ## LPD as a quantitative uncertainty measure? ##
 ################################################
 
-DI_errormodel <- DItoErrormetric(model, AOA, calib = "scam", k = 4)
-LPD_errormodel <- LPDtoErrormetric(model, AOA, calib = "scam")
-DI_LPD_errormodel <- DI_LPDtoErrormetric(model, AOA, calib = "scam")
+DI_errormodel <- errorProfiles(model, AOA, variable = "DI", calib = "scam")
+LPD_errormodel <- errorProfiles(model, AOA, variable = "LPD", calib = "scam")
 
 # DI error model:
 recl <- attr(DI_errormodel, "performance")
@@ -546,74 +571,18 @@ cor(slidingw$model, slidingw$true)
 rmse(slidingw$model, slidingw$true)
 
 
-# DI + LPD error model:
-recl <- attr(DI_LPD_errormodel, "performance")
-
-reference_perf_DI <- as.data.frame(list(AOA$DI,response,prediction))
-reference_perf_DI <- reference_perf_DI[order(reference_perf_DI$DI),]
-names(reference_perf_DI) <- c("DI","obs","pred")
-
-# use same moving window over the prediction data to get true RMSE
-slidingw_DI <- attr(DI_LPD_errormodel, "performance")
-reference_metric_DI <- apply(slidingw_DI,1,function(x){
-  x_df <- data.frame(t(x))
-  subs_ref <- reference_perf_DI[reference_perf_DI$DI>x_df$ll.DI&
-                                  reference_perf_DI$DI<x_df$ul.DI,]
-  rmse(subs_ref[,"pred"],subs_ref[,"obs"])
-})
-slidingw_DI$true.DI <- reference_metric_DI
-
-reference_perf_LPD <- as.data.frame(list(AOA$LPD,response,prediction))
-reference_perf_LPD <- reference_perf_LPD[order(reference_perf_LPD$LPD),]
-names(reference_perf_LPD) <- c("LPD","obs","pred")
-
-# use same moving window over the prediction data to get true RMSE
-slidingw_LPD <- attr(DI_LPD_errormodel, "performance")
-reference_metric_LPD <- apply(slidingw_LPD,1,function(x){
-  x_df <- data.frame(t(x))
-  subs_ref <- reference_perf_LPD[reference_perf_LPD$LPD>=x_df$ll.LPD&
-                                   reference_perf_LPD$LPD<=x_df$ul.LPD,]
-  rmse(subs_ref[,"pred"],subs_ref[,"obs"])
-})
-slidingw_LPD$true.LPD <- reference_metric_LPD
-
-# calculate true RMSE from DI and LPD moving window
-slidingw <- merge(slidingw_DI, slidingw_LPD)
-slidingw$true <- (slidingw$true.DI + slidingw$true.LPD) / 2
-
-plot(DI_LPD_errormodel) %>%
-  layout(title = list(text = "DI + LPD ~ metric (RMSE)", x = 0.2, y = 0.8)) %>%
-  add_markers(x = ~DI,
-              y = ~LPD,
-              z = ~true,
-              data = slidingw,
-              color = I("red"),
-              size = I(40),
-              name = "truth",
-              opacity = 1,
-              hovertemplate = paste0("DI: %{x}<br>LPD: %{y}<br>metric: %{z}<br>"))
-
-slidingw$model = predict(DI_LPD_errormodel_random, slidingw)
-cor(slidingw$model, slidingw$true)
-rmse(slidingw$model, slidingw$true)
-
-
-
 ##################################################
 ## Estimate model performance with error models ##
 ##################################################
-# prediction only makes sense inside aoa, as model was only fitted for data inside AOA
-# DI: smaller than AOA threshold
-# LPD: bigger than 1
+# prediction only makes sense inside aoa, since model was only fitted for data inside AOA
+# inside AOA: DI smaller than AOA threshold and LPD greater than 1
 
 DI_error_prediction <- predict(AOA$DI, DI_errormodel)
 LPD_error_prediction <- predict(AOA$LPD, LPD_errormodel)
-DI_LPD_error_prediction <- predict(rast(list(AOA$DI, AOA$LPD)), DI_LPD_errormodel)
 
 # mask outside AOA values
 DI_error_prediction[AOA$AOA == 0] <- NA
 LPD_error_prediction[AOA$AOA == 0] <- NA
-DI_LPD_error_prediction[AOA$AOA == 0] <- NA
 truediff[AOA$AOA == 0] <- NA
 
 colors <- as.character(values(AOA$AOA))
@@ -632,13 +601,6 @@ ggplot() +
   scale_fill_viridis_c(na.value = "transparent") +
   geom_spatraster(data = AOA$AOA , fill = colors, na.rm = TRUE, show.legend = T) +
   labs(title = "LPD predicted RMSE") +
-  theme
-
-ggplot() +
-  geom_spatraster(data = DI_LPD_error_prediction) +
-  scale_fill_viridis_c(na.value = "transparent") +
-  geom_spatraster(data = AOA$AOA , fill = colors, na.rm = TRUE, show.legend = T) +
-  labs(title = "DI and LPD predicted RMSE") +
   theme
 
 # compare performance predictions with true perfromance (true abs. error)

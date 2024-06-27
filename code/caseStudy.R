@@ -10,7 +10,6 @@ library(sf)
 library(tidyverse)
 
 # model training and AOA calculation
-remotes::install_github("fab-scm/CAST")
 library(caret)
 library(CAST)
 library(ranger)
@@ -25,9 +24,10 @@ library(gridExtra)
 library(cowplot)
 library(reshape2)
 
-# uncomment if you want to inspect the calcaulted layers with the explore AOA functions
-# packages are not installed with the CAST packages, so make sure you install them first
-# # exploreAOA
+# uncomment if you want to inspect the calcaulted layers with the exploreAOA() function from the CASTvis package
+# exploreAOA
+devtools::install_github("fab-scm/CASTvis")
+library(CASTvis)
 # library(leaflet)
 # library(shiny)
 # library(shinycssloaders)
@@ -180,7 +180,7 @@ rfmodel_ffs <- CAST::ffs(training_data[,predictor_names],
                          verbose = FALSE)
 
 selected_predictors <- rfmodel_ffs$finalModel$xNames
-selected_predictors <- c("bio_1", "bio_8", "bio_12", "bio_14", "elev")
+# selected_predictors <- c("bio_1", "bio_8", "bio_12", "bio_14", "elev")
 
 # plot predictors
 plot_predictors = ggplot() +
@@ -192,7 +192,7 @@ plot_predictors = ggplot() +
         legend.title = element_blank())
 
 # genrate pdf plot of predictors, sampling locations wit outcome and kNNDM folding
-pdf(file = "analysis/figures/case_study/predictors_samples.pdf", width = 14, height = 9)
+pdf(file = "code/figures/case_study/predictors_samples.pdf", width = 14, height = 9)
 plot_grid(plot_predictors, plot_samples, ncol = 2, nrow = 1, rel_widths = c(735,265), labels = c("(a)", "(b)"))
 invisible(dev.off())
 
@@ -210,7 +210,7 @@ plot_ffs = plot(rfmodel_ffs, plotType = "selected") +
 
 plotVarImp = plot(varImp(rfmodel_ffs,scale = F), col="black")
 
-pdf(file = "analysis/figures/case_study/FFS_varImp.pdf", width = 10, height = 5)
+pdf(file = "code/figures/case_study/FFS_varImp.pdf", width = 10, height = 5)
 plot_grid(plot_ffs, plotVarImp, ncol = 2, labels = c("(a)", "(b)"))
 invisible(dev.off())
 
@@ -230,9 +230,10 @@ plot_prediction
 ###############################
 ## Calculate DI, LPD and AOA ##
 ###############################
-AOA = CAST::aoa(newdata = predictors, model = rfmodel_ffs, method = "L2", LPD = TRUE, maxLPD = 1)
-plot(AOA)[1]
-plot(AOA)[2]
+# parameters indices = TRUE 
+AOA = CAST::aoa(newdata = predictors, model = rfmodel_ffs, method = "L2", LPD = TRUE, maxLPD = 1, indices = TRUE)
+plot(AOA, variable = "DI")
+plot(AOA, variable = "LPD")
 
 # find sampling locations under data/samples/training_samples: to add them to the map
 exploreAOA(AOA)
@@ -253,7 +254,7 @@ plotDILPD <- ggplot(df, aes(x = LPD, y = DI)) +
   scale_color_manual(name = "",values = c("LPD~DI" = "red"))
 plotDILPD # takes a moment due to gam model fitting
 
-pdf(file = "analysis/figures/case_study/DI_LPD_relationship.pdf", width = 10, height = 5)
+pdf(file = "code/figures/case_study/DI_LPD_relationship.pdf", width = 10, height = 5)
 plotDILPD # takes a moment due to gam model fitting
 invisible(dev.off())
 
