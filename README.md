@@ -7,4 +7,4 @@ Following contents can be found in the repository:
 * [caseStudy.R](code/caseStudy.R): Contains the code to run the case study and generate the respective plots.
 * [data](data/): Contains the predictor data used in the case study, the sampling locations for all studies, the model used in the case study and the modeldomain for the case study.
 
-Please open the project via [LPD.RProj](./LPD.Rroj) to ensure proper relative file paths.
+Please open the project via [LPD.RProj](./LPD.Rproj) to ensure proper relative file paths.
