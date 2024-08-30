@@ -2,3 +2,5 @@
 /data/raw
 /data/sPlotOpen
 .Rproj.user
+.RData
+.Rhistory

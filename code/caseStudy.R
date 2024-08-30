@@ -4,6 +4,8 @@
 # This case study is in parts based on the code of the scripts found on
 # https://github.com/LOEK-RS/CAST4ecology?tab=readme-ov-file
 
+rm(list=ls())
+
 # for (spatial) data handling
 library(terra)
 library(sf)
@@ -23,19 +25,6 @@ library(tidyterra)
 library(gridExtra)
 library(cowplot)
 library(reshape2)
-
-# uncomment if you want to inspect the calcaulted layers with the exploreAOA() function from the CASTvis package
-# exploreAOA
-devtools::install_github("fab-scm/CASTvis")
-library(CASTvis)
-# library(leaflet)
-# library(shiny)
-# library(shinycssloaders)
-# library(rlist)
-# library(bslib)
-# library(plotly)
-# library(shinyWidgets)
-
 
 element_textbox <- function(...) {
   el <- element_text(...)
@@ -87,7 +76,7 @@ predictors <- rast("data/predictors/predictors_south_america_5m.tif")
 splotdata <- readRDS("data/samples/training_samples.RDS")
 training_data <- splotdata |> st_drop_geometry() # reference samples without coordinates
 modeldomain <- st_read("data/modeldomain.gpkg", quiet = TRUE)
-# rfmodel_ffs <- readRDS("data/model/rfmodel_ffs.rds") # if uncommented the model training can be skipped
+rfmodel_ffs <- readRDS("data/model/rfmodel_ffs.rds") # if uncommented the model training can be skipped
 
 predictor_names <- names(predictors)
 response_name <- "Species_richness"
@@ -104,13 +93,12 @@ plot_samples_with_outcome = ggplot() +
   geom_sf(mapping = aes(col = Species_richness), data = splotdata, size = 1) +
   scale_color_viridis(name = "Species richness", option = "C", direction = -1, begin = 0.2) +
   theme +
-  theme(legend.position=c(.75,.16),
+  theme(legend.position.inside=c(.75,.16),
         legend.text=element_text(size = 8),
         legend.title=element_text(size = 10),
         legend.background=element_blank(),
         legend.key.height = unit(0.03, "npc"),
         legend.key.width = unit(0.015, "npc"))
-plot_samples_with_outcome
 
 ###################################
 ## Set up kNNDM cross-validation ##
@@ -138,29 +126,9 @@ plot_sample_cv_design = ggplot() +
         legend.background=element_blank(),
         legend.key.height = unit(0.03, "npc"),
         legend.key.width = unit(0.015, "npc"))
-plot_sample_cv_design
 
 # arrange plots
-plot_samples = arrangeGrob(plot_samples_with_outcome,plot_sample_cv_design, nrow=2)
-
-# plot geodistance
-gd_knndm <- geodist(splotdata,
-                    modeldomain,
-                    cvfolds = splotdata$fold)
-
-plot(gd_knndm, stat = "density") +
-  scale_y_continuous(expand = c(0,0))+
-  scale_x_continuous(expand = c(0,0),
-                     trans = "log10",
-                     labels = trans_format("log10", math_format(10^.x)))+
-  theme_light()+
-  theme(legend.position = "bottom")
-
-plot(gd_knndm, stat = "ecdf")+
-  scale_x_continuous(limits = c(0,1500000))+
-  theme_light()+
-  theme(legend.position = "bottom")
-
+plot_samples = arrangeGrob(plot_samples_with_outcome, plot_sample_cv_design, nrow=2)
 
 tr_control <- trainControl(method = "cv",
                            number = 5,
@@ -202,28 +170,15 @@ cv_results = rbind(global_validation(rfmodel_ffs)) |>
                             "predictors" = c(ncol(rfmodel_ffs$trainingData)-1))
 knitr::kable(cv_results)
 
-# plot ffs results and variable importance
-plot_ffs = plot(rfmodel_ffs, plotType = "selected") +
-  theme_light()+
-  theme(panel.grid.major.y = element_blank(),
-        axis.text = element_text(color = "black", size = 10))
-
+# plot variable importance
 plotVarImp = plot(varImp(rfmodel_ffs,scale = F), col="black")
 
-pdf(file = "code/figures/case_study/FFS_varImp.pdf", width = 10, height = 5)
-plot_grid(plot_ffs, plotVarImp, ncol = 2, labels = c("(a)", "(b)"))
+pdf(file = "code/figures/case_study/varImp.pdf", width = 10, height = 4)
+plotVarImp
 invisible(dev.off())
 
-# plot model prediction
+# model prediction
 prediction_ffs <- predict(predictors, rfmodel_ffs, na.rm = TRUE)
-plot_prediction = ggplot() +
-  geom_spatraster(data = prediction_ffs) +
-  scale_fill_viridis(name = "Species richness", na.value = "transparent", option = "mako", begin = 0.2) +
-  labs(title = "Prediction") +
-  theme +
-  theme(legend.key.height = unit(0.16, "npc")
-  )
-plot_prediction
 
 
 
@@ -231,32 +186,43 @@ plot_prediction
 ## Calculate DI, LPD and AOA ##
 ###############################
 # parameters indices = TRUE 
-AOA = CAST::aoa(newdata = predictors, model = rfmodel_ffs, method = "L2", LPD = TRUE, maxLPD = 1, indices = TRUE)
-plot(AOA, variable = "DI")
-plot(AOA, variable = "LPD")
-
-# find sampling locations under data/samples/training_samples: to add them to the map
-exploreAOA(AOA)
+AOA = CAST::aoa(newdata = predictors, model = rfmodel_ffs, method = "L2", LPD = TRUE)
 
 
+#####################################################
+## Print parameters of training and prediction LPD ##
+#####################################################
 
-# plot relationship between DI and LPD
-df = data.frame(LPD = values(AOA$LPD, na.rm = TRUE), DI = round(values(AOA$DI, na.rm = TRUE),digits = 3))
-df[df$LPD == 0 & df$DI <= 0.34, "DI"] = 0.341 # shift values for clear bins
-plotDILPD <- ggplot(df, aes(x = LPD, y = DI)) +
-  stat_bin_2d(breaks = list(x = seq(-0.5, max(df$LPD)+1, 1), y = seq(0, ceiling(max(df$DI)), 0.01))) +
-  scale_fill_viridis(begin = 0.1) +
-  geom_hline(aes(yintercept = AOA$parameters$threshold, linetype = "AOA_threshold")) +
-  scale_linetype_manual(name = "", values = c(AOA_threshold = "dashed")) +
-  labs(title = "LPD ~ DI (random)") +
-  theme_bw() +
-  geom_smooth(data = df, aes(LPD, DI, color = "LPD~DI"), method = "gam", se = FALSE) +
-  scale_color_manual(name = "",values = c("LPD~DI" = "red"))
-plotDILPD # takes a moment due to gam model fitting
+# helper functions to arrange parameters
+get_parameters_train <- function(aoa){
+  data.frame(
+    Similarity_threshold = aoa$parameters$threshold[[1]],
+    avrgLPD = round(mean(aoa$parameters$trainLPD[aoa$parameters$trainLPD > 0])),
+    sd = round(sd(aoa$parameters$trainLPD[aoa$parameters$trainLPD > 0])),
+    maxLPD = max(aoa$parameters$trainLPD)
+  )
+}
 
-pdf(file = "code/figures/case_study/DI_LPD_relationship.pdf", width = 10, height = 5)
-plotDILPD # takes a moment due to gam model fitting
-invisible(dev.off())
+get_parameters_pred <- function(aoa){
+  data.frame(
+    avrgLPD = round(mean(values(aoa$LPD, na.rm = T)[values(aoa$LPD, na.rm = T) > 0])),
+    sd = round(sd(values(aoa$LPD, na.rm = T)[values(aoa$LPD, na.rm = T) > 0])),
+    maxLPD = max(values(aoa$LPD, na.rm = T))
+  )
+}
+
+
+# arrange parameters
+train_parameters = get_parameters_train(AOA) 
+train_parameters = train_parameters |> mutate("Training (CV)" = c(""), .before = 1)
+
+pred_parameters = get_parameters_pred(AOA)
+pred_parameters = pred_parameters |> mutate("Prediction" = c(""), .before = 1)
+
+parameters = cbind(train_parameters, pred_parameters)
+
+knitr::kable(parameters)
+
 
 # plot DI layer
 plot_DI = ggplot() +
@@ -270,7 +236,6 @@ plot_DI = ggplot() +
         legend.background=element_blank(),
         legend.key.height = unit(0.05, "npc"),
         legend.key.width = unit(0.04, "npc"))
-plot_DI
 
 # plot LPD layer
 plot_LPD = ggplot() +
@@ -284,14 +249,13 @@ plot_LPD = ggplot() +
         legend.background=element_blank(),
         legend.key.height = unit(0.05, "npc"),
         legend.key.width = unit(0.04, "npc"))
-plot_LPD
 
 
 # plot predictions inside AOA
 
 # workaround to mask outside AOA
 colors <- as.character(values(AOA$AOA))
-colors[colors==0] <- "darkgoldenrod1"
+colors[colors==0] <- "violetred"
 colors[colors==1] <- "transparent"
 
 # workaround for the legend
@@ -303,9 +267,9 @@ p$label = "Outside AOA"
 
 plot_prediction_AOA = ggplot() +
   geom_spatraster(data = prediction_ffs) +
-  scale_fill_viridis_c(name = "Predicted\nSpecies Richness", na.value = "transparent", option = "mako", begin = 0.1) +
+  scale_fill_viridis_c(name = "Predicted\nSpecies Richness", na.value = "transparent", option = "viridis", begin = 0.1) +
   geom_spatraster(data = AOA$AOA , fill = colors, na.rm = TRUE, show.legend = T) +
-  geom_sf(data = p, color = c("darkgoldenrod1"), shape = 15, size = 5) +
+  geom_sf(data = p, color = c("violetred"), shape = 15, size = 5) +
   geom_sf_text(data = p, aes(label = label), nudge_x = 7) +
   labs(title = "Prediction inside AOA") +
   theme +
@@ -315,11 +279,10 @@ plot_prediction_AOA = ggplot() +
         legend.background=element_blank(),
         legend.key.height = unit(0.05, "npc"),
         legend.key.width = unit(0.04, "npc"))
-plot_prediction_AOA
 
 # generate PDF with DI, LPD and prediction_AOA plot
-pdf(file = "analysis/figures/case_study/DI_LPD_predAOA.pdf", width = 14, height = 8)
-plot_grid(plot_DI,
+pdf(file = "code/figures/case_study/DI_LPD_predAOA.pdf", width = 14, height = 8)
+ggarrange(plot_DI,
           plot_LPD,
           plot_prediction_AOA,
           ncol=3,
@@ -332,36 +295,52 @@ invisible(dev.off())
 #######################################
 
 # calculate error models
-DI_errormodel <- DItoErrormetric(model = rfmodel_ffs, trainDI = AOA$parameters, calib = "scam")
-LPD_errormodel <- LPDtoErrormetric(model = rfmodel_ffs, trainDI = AOA$parameters, calib = "exp")
-DI_LPD_errormodel <- DI_LPDtoErrormetric(model = rfmodel_ffs, trainDI = AOA$parameters, calib = "scam_exp")
+DI_errormodel <- errorProfiles(model = rfmodel_ffs, trainDI = AOA$parameters, variable = "DI", calib = "scam")
+LPD_errormodel <- errorProfiles(model = rfmodel_ffs, trainDI = AOA$parameters, variable = "LPD", calib = "scam")
+
 
 # plot errormodels
-plot_DI_errormodel = plot(DI_errormodel) + labs(title = "DI ~ metric (RMSE)")
-plot_DI_errormodel
-plot_LPD_errormodel = plot(LPD_errormodel) + labs(title = "LPD ~ metric (RMSE)")
-plot_LPD_errormodel
-plot_DI_LPD_errormodel = plot(DI_LPD_errormodel)
-plot_DI_LPD_errormodel %>%
-  layout(title = list(text = "DI + LPD ~ metric (RMSE)", x = 0.2, y = 0.8))
+plot_DI_errormodel = plot(DI_errormodel) + 
+                        scale_linetype_manual(name = "", values = c("model" = "solid"), guide = "none") +
+                        scale_color_manual(name = "", values = c("cross-validation" = "black",
+                                                                 "model" = "blue")) +
+                        scale_shape_manual(name = "", values = c("cross-validation" = 16)) +
+                        scale_y_continuous(breaks = seq(0, 120, 30)) +
+                        ylim(c(0,115)) +
+                        theme_bw() +
+                        theme(legend.title = element_blank(), legend.position = "none", panel.grid = element_blank())
+plot_LPD_errormodel = plot(LPD_errormodel) +
+                        scale_linetype_manual(name = "", values = c("model" = "solid"), guide = "none") +
+                        scale_color_manual(name = "", values = c("cross-validation" = "black",
+                                                                 "model" = "blue")) +
+                        scale_shape_manual(name = "", values = c("cross-validation" = 16)) +
+                        scale_y_continuous(breaks = seq(0, 120, 30)) +
+                        ylim(c(0,115)) +
+                        ylab("") +
+                        theme_bw() +
+                        theme(legend.title = element_blank(), legend.position = "none", panel.grid = element_blank())
 
 # genrate pdf plot for single error models
-pdf(file = "analysis/figures/case_study/errormodel_DI_LPD_complete.pdf", width = 10, height = 5)
-plot_grid(plot_DI_errormodel, plot_LPD_errormodel, ncol = 2, labels = c("(a)", "(b)"))
+pdf(file = "code/figures/case_study/errormodel_DI_LPD_complete.pdf", width = 10, height = 4)
+ggarrange(plot_DI_errormodel, 
+          plot_LPD_errormodel, 
+          ncol = 2, 
+          labels = c("(a)", "(b)"),
+          hjust = 0,
+          common.legend = T,
+          legend = "bottom"
+          )
 invisible(dev.off())
 
-# png plot of combined error model was made screenshotted
 
 # estimate model performance in the target area with the error models
 # reliable predictions can only be made inside the AOA as models were fitted there
 DI_error_prediction <- predict(AOA$DI, DI_errormodel)
 LPD_error_prediction <- predict(AOA$LPD, LPD_errormodel)
-DI_LPD_error_prediction <- predict(rast(list(AOA$DI, AOA$LPD)), DI_LPD_errormodel)
 
 # mask predictions outside AOA
 DI_error_prediction[AOA$AOA == 0] <- NA
 LPD_error_prediction[AOA$AOA == 0] <- NA
-DI_LPD_error_prediction[AOA$AOA == 0] <- NA
 
 # color mask for outside AOA
 colors <- as.character(values(AOA$AOA))
@@ -369,7 +348,7 @@ colors[colors==0] <- "violetred"
 colors[colors==1] <- "transparent"
 
 # work around for outside AOA legend
-p = st_point(c(-50,-55.5))
+p = st_point(c(-50,-45.5))
 p = st_sfc(p, crs = "epsg:4326")
 p = st_sf(p)
 p$label = "Outside AOA"
@@ -377,11 +356,11 @@ p$label = "Outside AOA"
 # plot DI error prediction
 plot_DI_error_prediction = ggplot() +
   geom_spatraster(data = DI_error_prediction) +
-  scale_fill_viridis_c(name = "RMSE", na.value = "transparent", option = "D") +
+  scale_fill_viridis_c(name = "RMSE", na.value = "transparent", option = "D", limits = c(0,60), breaks = seq(0, 60, 20)) +
   geom_spatraster(data = AOA$AOA , fill = colors, na.rm = TRUE, show.legend = T) +
-  geom_sf(data = p, color = c("violetred"), shape = 15, size = 7) +
-  geom_sf_text(data = p, aes(label = label), nudge_x = 7) +
-  labs(title = "DI predicted RMSE") +
+  # geom_sf(data = p, color = c("violetred"), shape = 15, size = 7) +
+  # geom_sf_text(data = p, aes(label = label), nudge_x = 7) +
+  labs(title = "RMSE Prediction (DI)") +
   theme +
   theme(legend.position=c(.683,.2),
         legend.text=element_text(size = 10),
@@ -393,41 +372,26 @@ plot_DI_error_prediction = ggplot() +
 # plot LPD error prediction
 plot_LPD_error_prediction = ggplot() +
   geom_spatraster(data = LPD_error_prediction) +
-  scale_fill_viridis_c(name = "RMSE", na.value = "transparent", option = "D") +
+  scale_fill_viridis_c(name = "RMSE", na.value = "transparent", option = "D", limits = c(0,60), breaks = seq(0, 60, 20)) +
   geom_spatraster(data = AOA$AOA , fill = colors, na.rm = TRUE, show.legend = T) +
-  geom_sf(data = p, color = c("violetred"), shape = 15, size = 7) +
-  geom_sf_text(data = p, aes(label = label), nudge_x = 7) +
-  labs(title = "LPD predicted RMSE") +
+  # geom_sf(data = p, color = c("violetred"), shape = 15, size = 7) +
+  # geom_sf_text(data = p, aes(label = label), nudge_x = 9) +
+  labs(title = "RMSE Prediction (LPD)") +
   theme +
   theme(legend.position=c(.683,.2),
         legend.text=element_text(size = 10),
         legend.title=element_text(size = 12),
-        legend.background=element_blank(),
-        legend.key.height = unit(0.05, "npc"),
-        legend.key.width = unit(0.04, "npc"))
-
-# plot DI+LPD error prediction
-plot_DI_LPD_error_prediction = ggplot() +
-  geom_spatraster(data = DI_LPD_error_prediction) +
-  scale_fill_viridis_c(name = "RMSE", na.value = "transparent", option = "D") +
-  geom_spatraster(data = AOA$AOA , fill = colors, na.rm = TRUE, show.legend = T) +
-  geom_sf(data = p, color = c("violetred"), shape = 15, size = 7) +
-  geom_sf_text(data = p, aes(label = label), nudge_x = 7) +
-  labs(title = "DI and LPD predicted RMSE") +
-  theme +
-  theme(legend.position=c(.683,.2),
-        legend.text=element_text(size = 10),
-        legend.title=element_text(size = 12),
-        legend.background=element_blank(),
+        legend.background = element_blank(),
         legend.key.height = unit(0.05, "npc"),
         legend.key.width = unit(0.04, "npc"))
 
 
-pdf(file = "analysis/figures/case_study/error_predictions.pdf", width = 14, height = 8)
-plot_grid(plot_DI_error_prediction,
+pdf(file = "code/figures/case_study/error_predictions.pdf", width = 12, height = 6)
+ggarrange(plot_DI_error_prediction,
           plot_LPD_error_prediction,
-          plot_DI_LPD_error_prediction,
-          ncol=3,
-          labels = c("(a)", "(b)", "(c)"))
+          ncol=2,
+          labels = c("(a)", "(b)"),
+          common.legend = T,
+          legend = "right")
 invisible(dev.off())
 
