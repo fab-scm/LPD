@@ -1,5 +1,5 @@
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14356807.svg)](https://doi.org/10.5281/zenodo.14356807)
 # Estimation of local training data point densities to support the assessment of spatial prediction uncertainty
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14356807.svg)](https://doi.org/10.5281/zenodo.14356807)
 This repository contains the supplementary material for the paper "Estimation of local training data point densities to support the assessment of spatial prediction uncertainty" by Fabian Schumacher, Christian Knoth, Marvin Ludwig and Hanna Meyer.
 
 Following contents can be found in the repository:
